@@ -44,10 +44,14 @@ build_targets <- function(config) {
 #'
 #' @keywords internal
 build_source_target <- function(source) {
+  targets::tar_assert_list(source)
+  targets::tar_assert_chr(source$name)
+  targets::tar_assert_chr(source$type)
+
   loader_fn <- get_loader_function(source$type)
   call_expr <- build_loader_call(loader_fn, source)
 
-  name_to_use <- trimws(as.character(source$name))
+  name_to_use <- trimws(source$name)
 
   targets::tar_target_raw(
     name = name_to_use,
@@ -63,6 +67,10 @@ build_source_target <- function(source) {
 #'
 #' @keywords internal
 build_transform_target <- function(transform) {
+  targets::tar_assert_list(transform)
+  targets::tar_assert_chr(transform$name)
+  targets::tar_assert_chr(transform$`function`)
+
   fn_name <- transform$`function`
   input_names <- trimws(as.character(transform$input))
 
@@ -90,8 +98,12 @@ build_transform_target <- function(transform) {
 #'
 #' @keywords internal
 build_output_target <- function(output) {
+  targets::tar_assert_list(output)
+  targets::tar_assert_chr(output$name)
+  targets::tar_assert_chr(output$format)
+
   save_fn <- get_save_function(output$format)
-  output_name <- trimws(as.character(output$name))
+  output_name <- trimws(output$name)
   filename <- paste0(output_name, ".", tolower(output$format))
   output_path <- file.path(output$path, filename)
 
@@ -101,10 +113,18 @@ build_output_target <- function(output) {
     file = output_path
   )
 
-  targets::tar_target_raw(
-    name = paste0("save_", output_name),
+  target_name <- paste0("save_", output_name)
+  target <- targets::tar_target_raw(
+    name = target_name,
     command = call_expr
   )
+
+  # Log target command for debugging
+  if (Sys.getenv("YAMLTARGETS_DEBUG") == "true") {
+    message(sprintf("%s <- %s", target_name, targets::tar_deparse_language(call_expr)))
+  }
+
+  target
 }
 
 #' Get appropriate loader function name based on file type

@@ -42,7 +42,7 @@ test_that("build_transform_target creates correct target", {
   transform <- list(
     name = "cleaned",
     input = "raw_data",
-    function = "clean_data",
+    `function` = "clean_data",
     params = list(remove_na = TRUE)
   )
 
