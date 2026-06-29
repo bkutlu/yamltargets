@@ -1,0 +1,21 @@
+Package: yamltargets
+Title: YAML-Driven Data Pipelines for targets
+Version: 0.1.0
+Authors@R: person("Burak", "Kutlu", email = "bkutluisb@gmail.com", role = c("aut", "cre"))
+Description: Extend targets with declarative YAML configuration. Define data pipelines
+    in YAML instead of hand-writing _targets.R. Part of the targetopia ecosystem.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen2: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    targets (>= 1.0),
+    yaml (>= 2.3.0),
+    rlang (>= 1.0),
+    cli (>= 3.0),
+    readr (>= 2.0),
+    arrow (>= 10.0)
+Suggests:
+    testthat (>= 3.0.0),
+    withr
+Config/testthat/edition: 3

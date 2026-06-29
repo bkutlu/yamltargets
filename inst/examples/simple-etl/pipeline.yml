@@ -1,0 +1,19 @@
+name: "Simple ETL Pipeline"
+description: "Load a CSV, clean it, and save as Parquet"
+
+sources:
+  - name: raw_data
+    type: csv
+    path: data/input.csv
+    options:
+      na: "NA"
+
+transforms:
+  - name: cleaned_data
+    input: raw_data
+    function: clean_data
+
+outputs:
+  - name: cleaned_data
+    format: parquet
+    path: results/
