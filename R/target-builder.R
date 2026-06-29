@@ -47,8 +47,11 @@ build_source_target <- function(source) {
   loader_fn <- get_loader_function(source$type)
   call_expr <- build_loader_call(loader_fn, source)
 
+  name_to_use <- trimws(as.character(source$name))
+  message(sprintf("DEBUG: Using name '%s' for target", name_to_use))
+
   targets::tar_target(
-    name = rlang::sym(source$name),
+    name = as.symbol(name_to_use),
     command = call_expr
   )
 }
@@ -62,11 +65,11 @@ build_source_target <- function(source) {
 #' @keywords internal
 build_transform_target <- function(transform) {
   fn_name <- transform$`function`
-  input_names <- as.character(transform$input)
+  input_names <- trimws(as.character(transform$input))
   call_args <- list()
 
   for (input_name in input_names) {
-    call_args[[input_name]] <- rlang::sym(input_name)
+    call_args[[input_name]] <- as.symbol(input_name)
   }
 
   if (!is.null(transform$params)) {
@@ -74,9 +77,10 @@ build_transform_target <- function(transform) {
   }
 
   call_expr <- rlang::call2(fn_name, !!!call_args)
+  name_to_use <- trimws(as.character(transform$name))
 
   targets::tar_target(
-    name = rlang::sym(transform$name),
+    name = as.symbol(name_to_use),
     command = call_expr
   )
 }
@@ -90,17 +94,18 @@ build_transform_target <- function(transform) {
 #' @keywords internal
 build_output_target <- function(output) {
   save_fn <- get_save_function(output$format)
-  filename <- paste0(output$name, ".", tolower(output$format))
+  output_name <- trimws(as.character(output$name))
+  filename <- paste0(output_name, ".", tolower(output$format))
   output_path <- file.path(output$path, filename)
 
   call_expr <- rlang::call2(
     save_fn,
-    x = rlang::sym(output$name),
+    x = as.symbol(output_name),
     file = output_path
   )
 
   targets::tar_target(
-    name = rlang::sym(paste0("save_", output$name)),
+    name = as.symbol(paste0("save_", output_name)),
     command = call_expr
   )
 }
