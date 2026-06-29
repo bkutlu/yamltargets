@@ -1,0 +1,11 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^\.gitignore$
+^\.github$
+^CLAUDE\.md$
+^PACKAGE_VISION\.md$
+^debug_config\.R$
+^_targets\.R$
+^_targets$
+^\.targets$

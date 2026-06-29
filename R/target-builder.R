@@ -48,10 +48,9 @@ build_source_target <- function(source) {
   call_expr <- build_loader_call(loader_fn, source)
 
   name_to_use <- trimws(as.character(source$name))
-  message(sprintf("DEBUG: Using name '%s' for target", name_to_use))
 
-  targets::tar_target(
-    name = as.symbol(name_to_use),
+  targets::tar_target_raw(
+    name = name_to_use,
     command = call_expr
   )
 }
@@ -66,11 +65,9 @@ build_source_target <- function(source) {
 build_transform_target <- function(transform) {
   fn_name <- transform$`function`
   input_names <- trimws(as.character(transform$input))
-  call_args <- list()
 
-  for (input_name in input_names) {
-    call_args[[input_name]] <- as.symbol(input_name)
-  }
+  # Build call with inputs as positional arguments
+  call_args <- lapply(input_names, rlang::sym)
 
   if (!is.null(transform$params)) {
     call_args <- c(call_args, transform$params)
@@ -79,8 +76,8 @@ build_transform_target <- function(transform) {
   call_expr <- rlang::call2(fn_name, !!!call_args)
   name_to_use <- trimws(as.character(transform$name))
 
-  targets::tar_target(
-    name = as.symbol(name_to_use),
+  targets::tar_target_raw(
+    name = name_to_use,
     command = call_expr
   )
 }
@@ -104,8 +101,8 @@ build_output_target <- function(output) {
     file = output_path
   )
 
-  targets::tar_target(
-    name = as.symbol(paste0("save_", output_name)),
+  targets::tar_target_raw(
+    name = paste0("save_", output_name),
     command = call_expr
   )
 }
