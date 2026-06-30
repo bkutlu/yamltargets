@@ -38,6 +38,8 @@ outputs:
     path: results/
 ```
 
+For outputs, `path` is the output directory. The file name is generated as `<name>.<format>`, so this example writes `results/cleaned_data.parquet`.
+
 ### 2. Define your transform functions
 
 Write your transform functions and load them before calling `create_pipeline_from_yaml()`.

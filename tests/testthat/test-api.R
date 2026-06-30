@@ -29,3 +29,18 @@ transforms: []
     "Missing required key.*sources"
   )
 })
+
+test_that("create_pipeline_from_yaml can skip post-build targets validation", {
+  yaml_content <- "
+sources:
+  - name: raw_data
+    type: csv
+    path: data/input.csv
+"
+  yaml_file <- withr::local_file(tempfile(fileext = ".yml"))
+  writeLines(yaml_content, yaml_file)
+
+  targets <- create_pipeline_from_yaml(yaml_file, validate_targets = FALSE)
+
+  expect_named(targets, "raw_data")
+})

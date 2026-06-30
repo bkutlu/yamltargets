@@ -14,7 +14,7 @@ write_csv(x, file, ...)
 \item{...}{Additional arguments passed to readr::write_csv()}
 }
 \value{
-Invisibly returns x
+Invisibly returns the output file path.
 }
 \description{
 Write data to a CSV file, creating parent directories as needed.

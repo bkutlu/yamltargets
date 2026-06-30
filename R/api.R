@@ -5,6 +5,8 @@
 #' package namespace when targets evaluates the pipeline.
 #'
 #' @param config_path Path to pipeline.yml configuration file.
+#' @param validate_targets Logical of length 1. Whether to validate the
+#'   generated target objects with `{targets}` after building them.
 #'
 #' @return A list of target definition objects. Call this function as the
 #'   entire return value of your `_targets.R` script.
@@ -18,10 +20,10 @@
 #' }
 #'
 #' @export
-create_pipeline_from_yaml <- function(config_path) {
+create_pipeline_from_yaml <- function(config_path, validate_targets = TRUE) {
   config <- read_pipeline_config(config_path)
   validate_pipeline_config(config)
-  build_targets(config)
+  build_targets(config, validate_targets = validate_targets)
 }
 
 #' Validate a pipeline configuration without running

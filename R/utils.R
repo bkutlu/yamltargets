@@ -1,8 +1,17 @@
 ensure_dir <- function(file) {
   dir_path <- dirname(file)
-  if (dir_path != "." && !dir.exists(dir_path)) {
-    dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+
+  if (identical(dir_path, ".") || dir.exists(dir_path)) {
+    return(invisible(NULL))
   }
+
+  dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+
+  if (!dir.exists(dir_path)) {
+    cli::cli_abort("Could not create output directory: {dir_path}")
+  }
+
+  invisible(NULL)
 }
 
 #' Write CSV file
@@ -13,13 +22,13 @@ ensure_dir <- function(file) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to readr::write_csv()
 #'
-#' @return Invisibly returns x
+#' @return Invisibly returns the output file path.
 #'
 #' @export
 write_csv <- function(x, file, ...) {
   ensure_dir(file)
   readr::write_csv(x, file, ...)
-  invisible(x)
+  invisible(file)
 }
 
 #' Write Parquet file
@@ -30,13 +39,13 @@ write_csv <- function(x, file, ...) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to arrow::write_parquet()
 #'
-#' @return Invisibly returns x
+#' @return Invisibly returns the output file path.
 #'
 #' @export
 write_parquet <- function(x, file, ...) {
   ensure_dir(file)
   arrow::write_parquet(x, file, ...)
-  invisible(x)
+  invisible(file)
 }
 
 #' Save RDS file
@@ -47,11 +56,11 @@ write_parquet <- function(x, file, ...) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to saveRDS()
 #'
-#' @return Invisibly returns x
+#' @return Invisibly returns the output file path.
 #'
 #' @export
 save_rds <- function(x, file, ...) {
   ensure_dir(file)
-  saveRDS(x, file = file, ...)
-  invisible(x)
+  base::saveRDS(x, file = file, ...)
+  invisible(file)
 }

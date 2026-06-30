@@ -70,7 +70,7 @@ transforms:
 outputs:
   - name: enriched
     format: parquet
-    path: results/final.parquet
+    path: results/
 ```
 
 **R code (_targets.R):**
@@ -213,7 +213,7 @@ transforms:
 outputs:
   - name: <name>              # Which transform output to save
     format: parquet | csv | rds
-    path: <directory>         # Where to save
+    path: <directory>         # Output directory; file is <name>.<format>
     # Optional:
     options:                  # Format-specific options
       compression: "snappy"   # For parquet

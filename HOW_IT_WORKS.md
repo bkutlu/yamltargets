@@ -47,7 +47,7 @@ Non-technical users (data analysts, domain experts) can define pipelines in YAML
 
 ## Part 2: The Data Flow Pipeline
 
-The package transforms data through five stages:
+The package transforms YAML into a `{targets}` pipeline through four conceptual stages:
 
 ```
 YAML File
@@ -56,18 +56,20 @@ YAML File
     ↓
 Raw R list (unvalidated)
     ↓
-[2. validate_pipeline_config()]  — Check schema + cross-references
+[2. validate_pipeline_config()]  — Check YAML schema + cross-references
     ↓
 Validated R list
     ↓
 [3. build_targets()]  — Generate tar_target_raw() objects
     ↓
-List of tar_target objects
+Generated target list
     ↓
-[4. create_pipeline_from_yaml()]  — Public API orchestrator
+[4. validate_targets_pipeline()]  — Check target objects + DAG integrity
     ↓
 targets-compatible list (for _targets.R)
 ```
+
+`create_pipeline_from_yaml()` is the public API that orchestrates these stages. YAML validation happens before target construction. `{targets}` pipeline validation happens after target construction, when there are actual `tar_target` objects to inspect.
 
 ---
 
@@ -77,12 +79,30 @@ targets-compatible list (for _targets.R)
 
 ```r
 read_pipeline_config <- function(config_path) {
-  if (!file.exists(config_path)) {
+  if (!is_scalar_character(config_path)) {
+    targets::tar_throw_validate("'config_path' must be a single file path")
+  }
+
+  if (!file_test("-f", config_path)) {
     targets::tar_throw_validate(
       paste("Config file not found:", config_path)
     )
   }
-  cfg <- yaml::read_yaml(config_path)
+
+  cfg <- tryCatch(
+    yaml::read_yaml(config_path),
+    error = function(error) {
+      targets::tar_throw_validate(
+        paste0(
+          "Could not parse config file '",
+          config_path,
+          "': ",
+          conditionMessage(error)
+        )
+      )
+    }
+  )
+
   targets::tar_assert_list(cfg, "Pipeline config must be a YAML list/object")
   cfg
 }
@@ -90,9 +110,12 @@ read_pipeline_config <- function(config_path) {
 
 ### What Happens
 
-1. Read YAML file using `yaml::read_yaml()` — converts YAML syntax to R lists/vectors
-2. Assert the result is a list (not scalar, vector, etc.)
-3. Return the raw, unvalidated list
+1. Check that `config_path` is a single character value.
+2. Check that it points to a file, not just any existing path.
+3. Read YAML file using `yaml::read_yaml()` — converts YAML syntax to R lists/vectors.
+4. Wrap YAML parser errors in a config-specific validation message.
+5. Assert the result is a list (not scalar, vector, etc.).
+6. Return the raw, unvalidated list.
 
 ### Rationale for Separate Validation
 
@@ -131,125 +154,112 @@ list(
 
 **File:** `R/config-parser.R:validate_pipeline_config()`
 
-This function does **three types of checks**:
+This stage checks that the parsed YAML has the expected structure and that references between sources, transforms, and outputs are valid. The main function is intentionally small: it delegates most checks to helper functions and then reports any accumulated errors together.
 
 ### Check 2a: Required Sections
 
-```r
-if (is.null(config$sources)) {
-  errors <- c(errors, "Missing required key: 'sources'")
-}
-if (is.null(config$transforms)) {
-  errors <- c(errors, "Missing required key: 'transforms'")
-}
+The pipeline requires a top-level `sources` section. `validate_required_sections()` checks for that key and returns messages such as:
+
+```text
+Missing required key: 'sources'
 ```
 
-**Rationale:** A pipeline must have at least sources (input data) and transforms (what to do with it). If missing, fail fast with a clear error.
+`transforms` and `outputs` are optional, so source-only pipelines are valid.
+
+**Rationale:** A pipeline must define input data, but not every pipeline needs transform or output steps. Required-section errors are collected with the rest of the validation errors so the user can fix multiple issues at once.
 
 ### Check 2b: Per-Item Validation
 
-For each source:
-```r
-for (i in seq_along(config$sources)) {
-  src <- config$sources[[i]]
-  if (is.null(src$name)) {
-    errors <- c(errors, sprintf("sources[%d]: missing 'name'", i))
-  }
-  if (is.null(src$type)) {
-    errors <- c(errors, sprintf("sources[%d]: missing 'type'", i))
-  }
-  valid_types <- c("csv", "parquet", "rds", "file_read")
-  if (!is.null(src$type)) {
-    targets::tar_assert_in(src$type, valid_types, ...)
-  }
-  
-  # file_read requires format field
-  if (!is.null(src$type) && src$type == "file_read") {
-    if (is.null(src$format)) {
-      errors <- c(errors, 
-        sprintf("sources[%d]: missing 'format'", i))
-    } else {
-      valid_formats <- c("csv", "parquet", "rds")
-      targets::tar_assert_in(src$format, valid_formats, ...)
-    }
-  }
-}
+When present, each section must be a list of objects. Each object has required fields:
+
+| Section | Required fields |
+|---|---|
+| `sources` | `name`, `type`, `path` |
+| `transforms` | `name`, `input`, `function` |
+| `outputs` | `name`, `format`, `path` |
+
+The validator also checks that scalar fields such as `name`, `type`, `path`, `format`, and `function` are character values, that target names are syntactically valid, and that `options` and `params` are named lists when supplied.
+
+The shared helper `validate_required_fields()` generates indexed messages like:
+
+```text
+sources[1]: missing 'name'
+transforms[2]: missing 'function'
+outputs[1]: missing 'path'
 ```
 
-**Rationale for detailed error messages:** Each error includes the item index (`sources[1]`) so users know exactly which item in their YAML is wrong.
+**Rationale for detailed error messages:** Each error includes the section and item index, so users know exactly which YAML entry needs attention.
 
-**Rationale for nesting the file_read check:** Only check for `format` if `type` is present. This prevents null-pointer-like errors.
+### Check 2c: Supported Types and Formats
 
-### Check 2c: Cross-Reference Validation
+Source `type` values are validated against:
 
-```r
-# Build set of defined names (sources, then transforms in order)
-defined_names <- character(0)
-if (!is.null(config$sources)) {
-  defined_names <- c(defined_names,
-    vapply(config$sources, function(x) x$name %||% "", character(1)))
-}
-if (!is.null(config$transforms)) {
-  defined_names <- c(defined_names,
-    vapply(config$transforms, function(x) x$name %||% "", character(1)))
-}
-
-# Check transform inputs reference defined targets
-if (!is.null(config$transforms)) {
-  for (i in seq_along(config$transforms)) {
-    trn <- config$transforms[[i]]
-    if (!is.null(trn$input)) {
-      for (inp in as.character(trn$input)) {
-        if (!inp %in% defined_names) {
-          errors <- c(errors,
-            sprintf("transforms[%d]: input '%s' not defined", i, inp))
-        }
-      }
-    }
-  }
-}
-
-# Check output names reference defined targets
-if (!is.null(config$outputs)) {
-  for (i in seq_along(config$outputs)) {
-    out <- config$outputs[[i]]
-    if (!is.null(out$name) && !out$name %in% defined_names) {
-      errors <- c(errors,
-        sprintf("outputs[%d]: name '%s' not defined", i, out$name))
-    }
-  }
-}
+```text
+csv, parquet, rds, file_read
 ```
 
-**Rationale:** This catches typos *before* tar_make() runs. Without this validation, a user writes:
+File formats are validated against:
 
-```yaml
-transforms:
-  - name: cleaned
-    input: raw_dta  # typo!
-    function: clean_data
+```text
+csv, parquet, rds
 ```
 
-The error only surfaces when tar_make() runs and can't find `raw_dta`. By validating upfront, we give immediate feedback.
+The helper `validate_choice()` returns messages like:
 
-**Why build `defined_names` by order?** A transform can reference:
-- Sources (defined first)
-- Earlier transforms (defined in order)
+```text
+sources[1]: type 'json' not supported (use: csv, parquet, rds, file_read)
+outputs[1]: format 'xlsx' not supported (use: csv, parquet, rds)
+```
 
-So we accumulate names as we go. Transform 2 can reference Transform 1, but Transform 1 cannot reference Transform 2.
+For `type: file_read`, the source must also include a `format` field so the package knows how to read the tracked file after `{targets}` detects changes.
+
+### Check 2d: Duplicate and Invalid Target Names
+
+The validator checks names at several levels:
+
+```text
+Duplicate source name: raw_data
+Duplicate transform name: cleaned_data
+Duplicate target name: save_cleaned
+Duplicate generated target name: raw_data_file
+Invalid target name: raw-data
+```
+
+Target names are normalized with `trimws()` before duplicate checks. This means `"raw"` and `" raw "` are treated as the same name.
+
+**Rationale:** Duplicate or invalid names would create ambiguous target definitions or invalid dependency expressions. The generated names matter too: `type: file_read` creates a `<name>_file` target, and each output creates a `save_<name>` target.
+
+### Check 2e: Cross-Reference Validation
+
+The validator builds a set of defined names from source names and transform names using `extract_scalar_field()`. Missing, non-character, or non-scalar names are represented internally as `NA` and removed before reference checks.
+
+Transform inputs must refer to a defined source or transform:
+
+```text
+transforms[1]: input 'raw_dta' not defined
+```
+
+Outputs must name a defined source or transform:
+
+```text
+outputs[1]: name 'cleaned_dta' not defined
+```
+
+**Rationale:** This catches typos *before* `tar_make()` runs. Without this validation, a misspelled input name would only fail when `{targets}` tries to evaluate the generated pipeline.
+
+**Current behavior:** The defined-name set includes all sources and all transforms before reference checks. That means validation currently allows a transform to reference a transform listed later in the YAML. The generated target graph may still be valid because `{targets}` resolves dependencies from the generated expressions, but if the intended design is strictly sequential YAML, this validation could be tightened later.
 
 ### Final Step: Collect and Report All Errors
 
-```r
-if (length(errors) > 0) {
-  error_msg <- paste(c("Invalid pipeline configuration:", errors), 
-    collapse = "\n  ")
-  targets::tar_throw_validate(error_msg)
-}
-invisible(TRUE)
+After all checks run, `throw_config_errors()` reports accumulated errors with `targets::tar_throw_validate()`:
+
+```text
+Invalid pipeline configuration:
+  sources[1]: missing 'name'
+  sources[1]: type 'json' not supported (use: csv, parquet, rds, file_read)
 ```
 
-**Rationale for `tar_throw_validate()`:** This is the idiomatic targets way to report validation errors. It signals to users "this is a configuration error, not a runtime error."
+**Rationale for `tar_throw_validate()`:** This is the idiomatic `{targets}` way to report validation errors. It signals to users that the problem is a configuration issue, not a runtime failure.
 
 ---
 
@@ -262,12 +272,16 @@ This is where YAML becomes executable R code.
 ### Entry Point
 
 ```r
-build_targets <- function(config) {
+build_targets <- function(config, validate_targets = TRUE) {
   targets_list <- list()
-  
+
   # Process sources, transforms, outputs in order
   # Each produces 1+ targets
-  
+
+  if (isTRUE(validate_targets)) {
+    validate_targets_pipeline(targets_list)
+  }
+
   targets_list
 }
 ```
@@ -278,27 +292,21 @@ build_targets <- function(config) {
 - Outputs depend on transforms
 - This matches the logical flow of data through the pipeline
 
+The `validate_targets` argument controls post-build `{targets}` validation. It is enabled by default in `create_pipeline_from_yaml()` so the generated target list is checked before being returned to `_targets.R`.
+
 ### Building Source Targets
 
 ```r
 if (!is.null(config$sources)) {
-  for (src in config$sources) {
-    target <- build_source_target(src)
-    
-    # Handle tracked sources that return a list of 2 targets
-    if (is.list(target) && !inherits(target, "tar_target")) {
-      targets_list <- c(targets_list, target)  # Flatten list
-    } else {
-      targets_list[[src$name]] <- target  # Single target
-    }
-  }
+  source_targets <- lapply(config$sources, build_source_target)
+  targets_list <- c(targets_list, unlist(source_targets, recursive = FALSE))
 }
 ```
 
-**Rationale for the if/else:**
-- Normal sources (csv, parquet, rds) return 1 tar_target object
-- file_read sources return a list of 2 tar_target objects (file tracker + reader)
-- We need to handle both cases, so we check `!inherits(target, "tar_target")`
+**Rationale for consistent list returns:**
+- Normal sources (`csv`, `parquet`, `rds`) return a named list containing one target.
+- `file_read` sources return a named list containing two targets: file tracker + reader.
+- Because every source builder returns a list, `build_targets()` can flatten source targets uniformly instead of checking object classes.
 
 ---
 
@@ -309,14 +317,14 @@ This is where the magic happens.
 #### For Standard Types (csv, parquet, rds)
 
 ```r
-if (source$type != "file_read") {
+if (!identical(source$type, "file_read")) {
   loader_fn <- get_loader_function(source$type)
-  call_expr <- build_loader_call(loader_fn, source)
-  
-  targets::tar_target_raw(
+  result <- list(targets::tar_target_raw(
     name = name_to_use,
-    command = call_expr
-  )
+    command = build_loader_call(loader_fn, source)
+  ))
+  names(result) <- name_to_use
+  result
 }
 ```
 
@@ -398,28 +406,25 @@ tar_target_raw(name = "raw_data", command = read_csv(...))
 ### Deep Dive: file_read Type (Two-Target Pattern)
 
 ```r
-if (source$type == "file_read") {
+if (identical(source$type, "file_read")) {
   name_file <- paste0(name_to_use, "_file")
   loader_fn <- get_loader_function(source$format)
-  
-  # TARGET 1: Track file changes
-  file_target <- targets::tar_target_raw(
-    name = name_file,
-    command = rlang::call2("identity", source$path),
-    format = "file"
+  read_args <- append_call_args(
+    list(file = rlang::sym(name_file)),
+    source$options
   )
-  
-  # TARGET 2: Read file
-  read_args <- list(file = rlang::sym(name_file))
-  if (!is.null(source$options)) {
-    read_args <- c(read_args, source$options)
-  }
-  read_target <- targets::tar_target_raw(
-    name = name_to_use,
-    command = rlang::call2(loader_fn, !!!read_args)
+
+  result <- list(
+    targets::tar_target_raw(
+      name = name_file,
+      command = rlang::call2(base::identity, source$path),
+      format = "file"
+    ),
+    targets::tar_target_raw(
+      name = name_to_use,
+      command = rlang::call2(loader_fn, !!!read_args)
+    )
   )
-  
-  result <- list(file_target, read_target)
   names(result) <- c(name_file, name_to_use)
   return(result)
 }
@@ -567,29 +572,34 @@ clean_data <- function(df, remove_na = FALSE) { ... }
 
 ```r
 if (!is.null(config$outputs)) {
-  for (out in config$outputs) {
-    target <- build_output_target(out)
-    targets_list[[paste0("save_", out$name)]] <- target
-  }
+  output_targets <- lapply(config$outputs, build_output_target)
+  names(output_targets) <- vapply(config$outputs, function(output) {
+    paste0("save_", normalize_name(output$name))
+  }, character(1))
+  targets_list <- c(targets_list, output_targets)
 }
 ```
 
 ```r
 build_output_target <- function(output) {
   save_fn <- get_save_function(output$format)
-  output_name <- trimws(output$name)
-  filename <- paste0(output_name, ".", tolower(output$format))
-  output_path <- file.path(output$path, filename)
-  
+  output_name <- normalize_name(output$name)
+  output_path <- build_output_path(
+    path = output$path,
+    name = output_name,
+    format = output$format
+  )
+
   call_expr <- rlang::call2(
     save_fn,
-    x = as.symbol(output_name),
+    x = rlang::sym(output_name),
     file = output_path
   )
-  
+
   targets::tar_target_raw(
     name = paste0("save_", output_name),
-    command = call_expr
+    command = call_expr,
+    format = "file"
   )
 }
 ```
@@ -607,8 +617,11 @@ outputs:
 ```r
 tar_target_raw(
   name = "save_cleaned_data",
-  command = write_parquet(x = cleaned_data, 
-    file = "results/cleaned_data.parquet")
+  command = write_parquet(
+    x = cleaned_data,
+    file = "results/cleaned_data.parquet"
+  ),
+  format = "file"
 )
 ```
 
@@ -618,23 +631,72 @@ Distinguishes output targets from data targets:
 - `cleaned_data` — the actual cleaned data (created by transform)
 - `save_cleaned_data` — the action of saving it (depends on `cleaned_data`)
 
-This makes the pipeline DAG clear: transforms produce data, output targets consume that data.
+This makes the pipeline DAG clear: transforms produce data, output targets consume that data and return the written file path. Because output targets use `format = "file"`, `{targets}` tracks the output artifact itself.
 
 ---
 
-## Part 6: Stage 4 — Public API
+## Part 6: Stage 4 — Post-Build `{targets}` Validation
+
+**File:** `R/target-builder.R:validate_targets_pipeline()`
+
+After `build_targets()` constructs the list of `tar_target` objects, `validate_targets_pipeline()` asks `{targets}` to validate the generated pipeline structure.
+
+```r
+validate_targets_pipeline <- function(targets_list) {
+  pipeline_from_list <- get(
+    "pipeline_from_list",
+    envir = asNamespace("targets")
+  )
+  pipeline_validate <- get("pipeline_validate", envir = asNamespace("targets"))
+
+  tryCatch(
+    {
+      pipeline <- pipeline_from_list(targets_list)
+      pipeline_validate(pipeline)
+    },
+    error = function(error) {
+      targets::tar_throw_validate(
+        paste0(
+          "Generated targets pipeline failed {targets} validation: ",
+          conditionMessage(error)
+        )
+      )
+    }
+  )
+
+  invisible(TRUE)
+}
+```
+
+### What This Checks
+
+This step delegates target-level integrity checks to `{targets}`, including target object validity, target settings, name conflicts, dependency graph structure, and DAG validity.
+
+### Why This Is Separate From YAML Validation
+
+`validate_pipeline_config()` validates the declarative YAML contract: required fields, supported source/output formats, `file_read` requirements, named `options`/`params`, cross-references, and generated names such as `save_<name>` and `<name>_file`.
+
+`validate_targets_pipeline()` validates the constructed `{targets}` pipeline after that YAML has been translated into target objects. It should not replace YAML validation because `{targets}` does not know the `yamltargets` schema or naming conventions.
+
+### Why Use an Isolated Helper
+
+The public `{targets}` validation function, `targets::tar_validate()`, validates a target script such as `_targets.R`. `yamltargets` builds an in-memory list of targets, so direct post-build validation uses lower-level `{targets}` functions obtained from the namespace. Keeping this logic in one helper isolates that dependency and makes future changes easier if `{targets}` exposes a public list-based validator.
+
+---
+
+## Part 7: Public API
 
 **File:** `R/api.R`
 
 ```r
-create_pipeline_from_yaml <- function(yaml_path) {
-  config <- read_pipeline_config(yaml_path)
+create_pipeline_from_yaml <- function(config_path, validate_targets = TRUE) {
+  config <- read_pipeline_config(config_path)
   validate_pipeline_config(config)
-  build_targets(config)
+  build_targets(config, validate_targets = validate_targets)
 }
 
-validate_pipeline <- function(yaml_path) {
-  config <- read_pipeline_config(yaml_path)
+validate_pipeline <- function(config_path) {
+  config <- read_pipeline_config(config_path)
   validate_pipeline_config(config)
   invisible(TRUE)
 }
@@ -644,7 +706,8 @@ validate_pipeline <- function(yaml_path) {
 
 Two entry points for different use cases:
 - `validate_pipeline("pipeline.yml")` — Check if YAML is valid (no building)
-- `create_pipeline_from_yaml("pipeline.yml")` — Build targets for _targets.R
+- `create_pipeline_from_yaml("pipeline.yml")` — Validate YAML, build targets, then validate the generated `{targets}` pipeline
+- `create_pipeline_from_yaml("pipeline.yml", validate_targets = FALSE)` — Build targets without the post-build `{targets}` validation step
 
 ### Usage in _targets.R
 
@@ -654,20 +717,20 @@ library(yamltargets)
 
 source("R/functions.R")
 
-list(
-  yamltargets::create_pipeline_from_yaml("pipeline.yml")
-)
+yamltargets::create_pipeline_from_yaml("pipeline.yml")
 ```
 
-This gives users a one-liner in _targets.R. The complexity is hidden in the pipeline.yml config.
+This gives users a one-liner in _targets.R. The function already returns a list of target objects, so it should be the return value of the script rather than wrapped in another `list()`. The complexity is hidden in the pipeline.yml config. For script-based workflows, users can still run `targets::tar_validate()` on `_targets.R`; the internal post-build validation exists so `yamltargets` can check the generated in-memory target list before returning it.
 
 ---
 
-## Part 7: Key Design Principles
+## Part 8: Key Design Principles
 
-### 1. Validation is Separate from Generation
+### 1. YAML Validation is Separate from Target Generation
 
-If validation fails, we never attempt to build targets. This prevents partial/incorrect pipelines from being created.
+If YAML validation fails, we never attempt to build targets. This prevents partial/incorrect pipelines from being created.
+
+Post-build `{targets}` validation is a separate layer: it runs after target generation and checks whether the generated target objects form a valid `{targets}` pipeline.
 
 ### 2. Errors Include Context
 
@@ -702,13 +765,13 @@ tar_target_raw("cleaned", clean_data("raw_data"))  # String, not symbol!
 
 **Rationale:** targets performs static code analysis to find dependencies. It looks for symbol references, not string literals. `raw_data` (symbol) tells targets about the dependency. `"raw_data"` (string) is just data.
 
-### 5. Two-Target Pattern for File Tracking
+### 5. Native File Tracking
 
-The file_read pattern uses targets' native `format="file"` instead of reimplementing change detection. This is robust and follows targets best practices.
+The `file_read` pattern uses `{targets}` native `format = "file"` instead of reimplementing change detection. Output save targets also use `format = "file"` and writer helpers return the written path, so generated artifacts are tracked as files.
 
 ---
 
-## Part 8: Example Walkthrough
+## Part 9: Example Walkthrough
 
 Let's trace a complete pipeline:
 
@@ -761,13 +824,15 @@ config <- read_pipeline_config("pipeline.yml")
 ```r
 validate_pipeline_config(config)
 # Checks:
-# - sources, transforms present? ✓
+# - sources present? ✓
+# - sources, transforms, and outputs are lists of objects? ✓
+# - target names are valid and unique? ✓
 # - type=file_read has format? ✓ (format="csv")
 # - transform input="raw_data" defined? ✓ (source raw_data exists)
 # - output name="cleaned" defined? ✓ (transform cleaned exists)
 ```
 
-### Step 3: Build
+### Step 3: Build and Validate Generated Targets
 
 ```r
 targets_list <- build_targets(config)
@@ -784,9 +849,15 @@ targets_list <- build_targets(config)
 - Generates: tar_target_raw("cleaned", clean_data(raw_data))
 
 **Processing outputs:**
-- name="cleaned" → x=as.symbol("cleaned")
-- format="parquet" → write_parquet
-- Generates: tar_target_raw("save_cleaned", write_parquet(x=cleaned, file="results/cleaned.parquet"))
+- name="cleaned" → `x = rlang::sym("cleaned")`
+- format="parquet" → `write_parquet`
+- output writer returns the file path invisibly
+- Generates: `tar_target_raw("save_cleaned", write_parquet(x = cleaned, file = "results/cleaned.parquet"), format = "file")`
+
+**Post-build validation:**
+- Converts the generated list to a `{targets}` pipeline object
+- Delegates target object and DAG checks to `{targets}`
+- Returns the target list only if `{targets}` accepts the generated structure
 
 ### Step 4: Result
 
@@ -833,10 +904,12 @@ When data/input.csv changes:
 1. **Separate parsing from validation** — Syntax errors vs. semantic errors are different problems
 2. **Use `tar_target_raw()` for programmatic generation** — Safer than trying to convert external strings to symbols
 3. **Use symbols for dependencies, strings for names** — targets does static analysis looking for symbols
-4. **Adopt targets' native patterns** — format="file" for file tracking, not custom reimplementation
-5. **Two-target pattern enables proper change tracking** — Separates concerns (file monitoring vs. data reading)
+4. **Adopt targets' native patterns** — Use `format = "file"` for tracked input and output files
+5. **Two-target pattern enables input file tracking** — Separates concerns (file monitoring vs. data reading)
 6. **Validate cross-references upfront** — Give immediate feedback, catch typos before tar_make()
-7. **Include context in error messages** — Array indices and field names help users fix problems fast
+7. **Validate target names upfront** — Catch duplicate, generated, and syntactically invalid names before target construction
+8. **Delegate target-level validation to `{targets}`** — Use `{targets}` after construction to check target objects and DAG integrity
+9. **Include context in error messages** — Array indices and field names help users fix problems fast
 
 ---
 
@@ -844,9 +917,9 @@ When data/input.csv changes:
 
 - **`R/api.R`** — Public entry points (create_pipeline_from_yaml, validate_pipeline)
 - **`R/config-parser.R`** — Parse YAML and validate schema + cross-references
-- **`R/target-builder.R`** — Generate tar_target_raw objects from validated config
-- **`R/loaders.R`** — Built-in read/write functions for CSV, Parquet, RDS
-- **`R/utils.R`** — Helper functions (name validation, directory creation)
+- **`R/target-builder.R`** — Generate tar_target_raw objects from validated config and run post-build `{targets}` validation
+- **`R/loaders.R`** — Built-in reader functions for CSV, Parquet, RDS
+- **`R/utils.R`** — Writer functions and output-directory creation
 
 ---
 
@@ -855,6 +928,6 @@ When data/input.csv changes:
 Each layer has corresponding tests:
 - `test-api.R` — Public API behavior
 - `test-config-parser.R` — YAML parsing, validation, cross-references
-- `test-target-builder.R` — Target generation for each source/transform/output type
+- `test-target-builder.R` — Target generation for each source/transform/output type and post-build `{targets}` validation
 
 This makes it easy to understand what each layer does and verify it works correctly.

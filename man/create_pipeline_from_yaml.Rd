@@ -4,10 +4,13 @@
 \alias{create_pipeline_from_yaml}
 \title{Create a targets pipeline from YAML configuration}
 \usage{
-create_pipeline_from_yaml(config_path)
+create_pipeline_from_yaml(config_path, validate_targets = TRUE)
 }
 \arguments{
 \item{config_path}{Path to pipeline.yml configuration file.}
+
+\item{validate_targets}{Logical of length 1. Whether to validate the
+generated target objects with `{targets}` after building them.}
 }
 \value{
 A list of target definition objects. Call this function as the
