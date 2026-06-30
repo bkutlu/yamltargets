@@ -15,7 +15,12 @@ build_targets <- function(config) {
   if (!is.null(config$sources)) {
     for (src in config$sources) {
       target <- build_source_target(src)
-      targets_list[[src$name]] <- target
+      # Handle tracked sources that return a list of 2 targets
+      if (is.list(target) && !inherits(target, "tar_target")) {
+        targets_list <- c(targets_list, target)
+      } else {
+        targets_list[[src$name]] <- target
+      }
     }
   }
 
@@ -48,10 +53,40 @@ build_source_target <- function(source) {
   targets::tar_assert_chr(source$name)
   targets::tar_assert_chr(source$type)
 
+  name_to_use <- trimws(source$name)
+
+  # file_read type: generate two-target pattern (file tracking + read)
+  if (source$type == "file_read") {
+    name_file <- paste0(name_to_use, "_file")
+
+    loader_fn <- get_loader_function(source$format)
+
+    # Target 1: Track file changes via format="file"
+    file_target <- targets::tar_target_raw(
+      name = name_file,
+      command = rlang::call2("identity", source$path),
+      format = "file"
+    )
+
+    # Target 2: Read file using the path from file target
+    read_args <- list(file = rlang::sym(name_file))
+    if (!is.null(source$options)) {
+      read_args <- c(read_args, source$options)
+    }
+    read_target <- targets::tar_target_raw(
+      name = name_to_use,
+      command = rlang::call2(loader_fn, !!!read_args)
+    )
+
+    # Return both targets as a named list
+    result <- list(file_target, read_target)
+    names(result) <- c(name_file, name_to_use)
+    return(result)
+  }
+
+  # Standard types (csv, parquet, rds): single target
   loader_fn <- get_loader_function(source$type)
   call_expr <- build_loader_call(loader_fn, source)
-
-  name_to_use <- trimws(source$name)
 
   targets::tar_target_raw(
     name = name_to_use,
@@ -114,15 +149,10 @@ build_output_target <- function(output) {
   )
 
   target_name <- paste0("save_", output_name)
-  target <- targets::tar_target_raw(
+  target <-targets::tar_target_raw(
     name = target_name,
     command = call_expr
   )
-
-  # Log target command for debugging
-  if (Sys.getenv("YAMLTARGETS_DEBUG") == "true") {
-    message(sprintf("%s <- %s", target_name, targets::tar_deparse_language(call_expr)))
-  }
 
   target
 }

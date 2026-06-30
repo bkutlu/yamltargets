@@ -1,0 +1,20 @@
+name: "ETL Pipeline with File Tracking"
+description: "Load a CSV with automatic file change detection, clean it, and save as Parquet"
+
+sources:
+  - name: raw_data
+    type: file_read
+    format: csv
+    path: data/input.csv
+    options:
+      na: "NA"
+
+transforms:
+  - name: cleaned_data
+    input: raw_data
+    function: clean_data
+
+outputs:
+  - name: cleaned_data
+    format: parquet
+    path: results/

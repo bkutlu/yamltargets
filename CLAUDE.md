@@ -128,6 +128,34 @@ YAML parsers sometimes preserve whitespace (e.g., "raw_data " with trailing spac
 
 In the YAML, `input: raw_data` is converted to a character vector by the YAML parser. The config parser normalizes this to ensure consistency. Transforms are designed to accept ordered positional arguments matching the order of inputs in the YAML.
 
+### 5. File Tracking: Two-Target Pattern from tarchetypes
+
+Sources with `type: file_read` generate two targets following the tarchetypes `tar_file_read()` pattern:
+
+```yaml
+sources:
+  - name: raw_data
+    type: file_read
+    format: csv
+    path: data/input.csv
+```
+
+Generates:
+```r
+# Target 1: tracks file changes via format="file"
+tar_target_raw("raw_data_file", identity("data/input.csv"), format = "file")
+
+# Target 2: reads file using path from Target 1
+tar_target_raw("raw_data", read_csv(file = raw_data_file))
+```
+
+**Why this approach?**
+- Uses targets' built-in `format="file"` mechanism for automatic file change detection
+- Two-target separation ensures proper invalidation of downstream targets
+- Symbol reference (`raw_data_file`) creates dependency automatically
+- Rest of pipeline uses `input: raw_data` unchanged (the second target name)
+- No external dependencies — purely targets' native functionality
+
 ---
 
 ## Testing
@@ -165,7 +193,8 @@ Use `withr::local_file()` for test cleanup (file auto-deletes after test).
 ## Example Pipelines
 
 Working examples in `inst/examples/simple-etl/`:
-- `pipeline.yml` — YAML config
+- `pipeline.yml` — Basic YAML config (CSV → clean → Parquet)
+- `pipeline-tracked.yml` — File tracking example (`type=file_read` detects file changes)
 - `_targets.R` — Minimal _targets.R file
 - `data/input.csv` — Sample data
 - `R/functions.R` — Transform functions
@@ -175,7 +204,15 @@ To test locally:
 cd inst/examples/simple-etl
 R
 > devtools::load_all("../../..")  # Load yamltargets from repo root
-> tar_make()
+> tar_make()                      # Uses pipeline.yml by default
+```
+
+For file tracking example:
+```bash
+cd inst/examples/simple-etl
+R
+> devtools::load_all("../../..")
+> tar_make(targets_file = "_targets_tracked.R")  # Or rename pipeline-tracked.yml → pipeline.yml
 ```
 
 ---
@@ -203,6 +240,8 @@ devtools::document()
 - ✅ Built-in loaders (CSV, Parquet, RDS)
 - ✅ Public API
 - ✅ Test suite
+- ✅ File tracking (`type: file_read`) — automatic file change detection via targets' format="file"
+- ✅ Cross-reference validation — catches undefined transform inputs and output names
 
 **Remaining for v1.0 release:**
 - Documentation improvements
