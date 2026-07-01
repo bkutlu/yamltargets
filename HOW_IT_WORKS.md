@@ -9,7 +9,7 @@ This document explains yamltargets step-by-step, with rationale for every design
 ### Without yamltargets
 
 ```r
-# _targets.R — hand-written, verbose
+# _targets.R — hand-written target definitions, verbose
 list(
   targets::tar_target_raw("raw_data", read_csv("data/input.csv", na = "NA")),
   targets::tar_target_raw("cleaned", clean_data(raw_data)),
@@ -39,9 +39,35 @@ outputs:
     path: results/
 ```
 
+### What the User Does
+
+The user creates two project files:
+
+| File | User action |
+|---|---|
+| `pipeline.yml` | Declare sources, transforms, outputs, and dependencies. |
+| `_targets.R` | Load packages, source transform functions, set `{targets}` options, and return `create_pipeline_from_yaml("pipeline.yml")` as the final expression. |
+
+A minimal `_targets.R` looks like this:
+
+```r
+library(targets)
+library(yamltargets)
+
+source("R/functions.R")
+
+yamltargets::create_pipeline_from_yaml("pipeline.yml")
+```
+
+The user runs the pipeline with:
+
+```r
+targets::tar_make()
+```
+
 ### Why This Matters
 
-Non-technical users (data analysts, domain experts) can define pipelines in YAML without knowing R or targets internals. They declare *what* they want (load CSV, clean it, save result), not *how* (tar_target_raw syntax, symbol dependencies).
+Non-technical users (data analysts, domain experts) can define pipeline structure in YAML without writing target definitions by hand. They declare *what* they want (load CSV, clean it, save result), while `yamltargets` handles `tar_target_raw()` calls, symbol dependencies, file tracking, and target validation. The `_targets.R` file stays small and focused on project setup.
 
 ---
 
@@ -247,7 +273,21 @@ outputs[1]: name 'cleaned_dta' not defined
 
 **Rationale:** This catches typos *before* `tar_make()` runs. Without this validation, a misspelled input name would only fail when `{targets}` tries to evaluate the generated pipeline.
 
-**Current behavior:** The defined-name set includes all sources and all transforms before reference checks. That means validation currently allows a transform to reference a transform listed later in the YAML. The generated target graph may still be valid because `{targets}` resolves dependencies from the generated expressions, but if the intended design is strictly sequential YAML, this validation could be tightened later.
+**Order-independent transforms:** The defined-name set includes all sources and all transforms before reference checks. This intentionally allows a transform to reference another transform that appears later in the YAML. YAML order is for readability; execution order comes from the `{targets}` dependency graph.
+
+For example, this is valid if the final graph is acyclic:
+
+```yaml
+transforms:
+  - name: step_b
+    input: step_a
+    function: transform_b
+  - name: step_a
+    input: raw_data
+    function: transform_a
+```
+
+Here, `step_b` appears first, but `{targets}` will still run `step_a` before `step_b` because `step_b` depends on `step_a`. Cycles are still invalid and are caught later by post-build `{targets}` validation.
 
 ### Final Step: Collect and Report All Errors
 
@@ -670,7 +710,7 @@ validate_targets_pipeline <- function(targets_list) {
 
 ### What This Checks
 
-This step delegates target-level integrity checks to `{targets}`, including target object validity, target settings, name conflicts, dependency graph structure, and DAG validity.
+This step delegates target-level integrity checks to `{targets}`, including target object validity, target settings, name conflicts, dependency graph structure, and DAG validity. In particular, this is where cyclic dependencies are rejected.
 
 ### Why This Is Separate From YAML Validation
 
@@ -711,6 +751,8 @@ Two entry points for different use cases:
 
 ### Usage in _targets.R
 
+Create `_targets.R` in the project root and make `create_pipeline_from_yaml()` the final expression:
+
 ```r
 library(targets)
 library(yamltargets)
@@ -720,7 +762,13 @@ source("R/functions.R")
 yamltargets::create_pipeline_from_yaml("pipeline.yml")
 ```
 
-This gives users a one-liner in _targets.R. The function already returns a list of target objects, so it should be the return value of the script rather than wrapped in another `list()`. The complexity is hidden in the pipeline.yml config. For script-based workflows, users can still run `targets::tar_validate()` on `_targets.R`; the internal post-build validation exists so `yamltargets` can check the generated in-memory target list before returning it.
+Then run the pipeline from the project root:
+
+```r
+targets::tar_make()
+```
+
+The function already returns a list of target objects, so it should be the return value of the script rather than wrapped in another `list()`. The complexity is hidden in the pipeline.yml config. For script-based workflows, users can still run `targets::tar_validate()` on `_targets.R`; the internal post-build validation exists so `yamltargets` can check the generated in-memory target list before returning it.
 
 ---
 
@@ -908,8 +956,9 @@ When data/input.csv changes:
 5. **Two-target pattern enables input file tracking** — Separates concerns (file monitoring vs. data reading)
 6. **Validate cross-references upfront** — Give immediate feedback, catch typos before tar_make()
 7. **Validate target names upfront** — Catch duplicate, generated, and syntactically invalid names before target construction
-8. **Delegate target-level validation to `{targets}`** — Use `{targets}` after construction to check target objects and DAG integrity
-9. **Include context in error messages** — Array indices and field names help users fix problems fast
+8. **Let the DAG determine execution order** — YAML order is for readability; `{targets}` runs dependencies before downstream targets
+9. **Delegate target-level validation to `{targets}`** — Use `{targets}` after construction to check target objects, DAG integrity, and cycles
+10. **Include context in error messages** — Array indices and field names help users fix problems fast
 
 ---
 

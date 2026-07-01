@@ -44,3 +44,26 @@ sources:
 
   expect_named(targets, "raw_data")
 })
+
+test_that("create_pipeline_from_yaml catches cyclic target graphs", {
+  yaml_content <- "
+sources:
+  - name: raw_data
+    type: csv
+    path: data/input.csv
+transforms:
+  - name: step_a
+    input: step_b
+    function: transform_a
+  - name: step_b
+    input: step_a
+    function: transform_b
+"
+  yaml_file <- withr::local_file(tempfile(fileext = ".yml"))
+  writeLines(yaml_content, yaml_file)
+
+  expect_snapshot(
+    create_pipeline_from_yaml(yaml_file),
+    error = TRUE
+  )
+})

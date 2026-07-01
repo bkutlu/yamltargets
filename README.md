@@ -3,7 +3,7 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-Define `targets` data pipelines in YAML instead of hand-writing `_targets.R`.
+Define `{targets}` target definitions in YAML, then use a minimal `_targets.R` file to run them.
 
 Part of the [targetopia](https://wlandau.github.io/targetopia/packages.html) family.
 
@@ -40,9 +40,9 @@ outputs:
 
 For outputs, `path` is the output directory. The file name is generated as `<name>.<format>`, so this example writes `results/cleaned_data.parquet`.
 
-### 2. Define your transform functions
+### 2. Create `_targets.R`
 
-Write your transform functions and load them before calling `create_pipeline_from_yaml()`.
+Create a `_targets.R` file in the project root. Load packages, define or source your transform functions, then make the final expression call `create_pipeline_from_yaml()`.
 
 **`_targets.R`:**
 ```r
@@ -51,36 +51,39 @@ library(yamltargets)
 
 tar_option_set(format = "parquet")
 
-# Define or source your transform functions
 clean_data <- function(df) {
   df |>
     dplyr::filter(!is.na(id)) |>
     dplyr::mutate(across(where(is.character), tolower))
 }
 
-# Generate pipeline from YAML
 create_pipeline_from_yaml("pipeline.yml")
 ```
 
-Or source functions from a separate file:
+For larger projects, put transform functions in a separate file and source it:
 ```r
-# In _targets.R
-source("functions.R")  # Contains clean_data, enrich_data, etc.
+library(targets)
+library(yamltargets)
+
+source("R/functions.R")
+
 create_pipeline_from_yaml("pipeline.yml")
 ```
 
 ### 3. Run the pipeline
 
+Run this from the project root:
+
 ```r
-tar_make()
+targets::tar_make()
 ```
 
 ## Why yamltargets?
 
-- **Declarative**: Pipeline structure is in YAML, not buried in R code
+- **Declarative**: Target definitions are in YAML, not buried in R code
 - **Auditable**: Version-control friendly; easy to see what changed
 - **Simple**: No complex R syntax; focus on domain logic
-- **Targets-native**: Generates plain `tar_target()` calls; no hidden magic
+- **Targets-native**: Generates `{targets}` target objects; no hidden magic
 
 ## Supported File Types
 
