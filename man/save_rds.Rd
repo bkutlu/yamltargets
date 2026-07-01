@@ -14,7 +14,7 @@ save_rds(x, file, ...)
 \item{...}{Additional arguments passed to saveRDS()}
 }
 \value{
-Invisibly returns the output file path.
+Invisibly returns `x`.
 }
 \description{
 Save an object to an RDS file, creating parent directories as needed.

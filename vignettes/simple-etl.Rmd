@@ -1,0 +1,147 @@
+---
+title: "Simple ETL pipeline"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Simple ETL pipeline}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+`yamltargets` lets you describe the structure of a `{targets}` pipeline in
+YAML. The YAML file says what the pipeline should do: read data, transform it,
+and write outputs. The `_targets.R` file stays focused on R setup code: loading
+packages, setting `{targets}` options, and defining or sourcing transform
+functions.
+
+This vignette walks through the simple ETL example included with the package.
+The example reads a CSV file, applies a small cleaning function, and writes the
+cleaned data as a Parquet file.
+
+## What the example contains
+
+The example project is installed with the package under
+`inst/examples/simple-etl`. Use `system.file()` to find the installed copy:
+
+```{r}
+example_dir <- system.file("examples", "simple-etl", package = "yamltargets")
+list.files(example_dir, recursive = TRUE)
+```
+
+The example has three main pieces:
+
+| File | Purpose |
+|---|---|
+| `data/input.csv` | Small input dataset used by the pipeline. |
+| `pipeline.yml` | Declarative pipeline specification. |
+| `_targets.R` | Minimal `{targets}` entry point that loads packages, defines `clean_data()`, and returns target definitions. |
+
+## Input data
+
+The input data are intentionally small so the pipeline structure is easy to
+see:
+
+```{r}
+input_path <- file.path(example_dir, "data", "input.csv")
+readr::read_csv(input_path, show_col_types = FALSE)
+```
+
+## Pipeline YAML
+
+The basic pipeline configuration is stored in `pipeline.yml`:
+
+```{r}
+pipeline_path <- file.path(example_dir, "pipeline.yml")
+writeLines(readLines(pipeline_path))
+```
+
+The configuration is organized into three sections:
+
+| Section | Role in the pipeline |
+|---|---|
+| `sources` | Define input datasets and how to read them. |
+| `transforms` | Define target-to-target transformations. |
+| `outputs` | Define files written from target objects. |
+
+In this example, `raw_data` is read from `data/input.csv`, `cleaned_data` is
+created by calling `clean_data(raw_data)`, and the output step writes
+`cleaned_data` to `results/cleaned_data.parquet`.
+
+For output entries, `path` is an output directory. The file name is generated
+from the output `name` and `format`.
+
+## Validate the YAML
+
+Use `validate_pipeline()` when you want to check the YAML schema without running
+the pipeline or creating target objects:
+
+```{r}
+yamltargets::validate_pipeline(pipeline_path)
+```
+
+A successful validation returns `TRUE` invisibly. If validation fails,
+`yamltargets` reports the YAML section and item that need attention.
+
+## Generate target definitions
+
+`create_pipeline_from_yaml()` parses the YAML, validates it, and returns a list
+of `{targets}` target objects. Functions named in the YAML, such as
+`clean_data`, must be available when the pipeline is created and run.
+
+```{r}
+clean_data <- function(df) {
+  df |>
+    dplyr::filter(!is.na(id)) |>
+    dplyr::mutate(dplyr::across(where(is.character), tolower))
+}
+
+targets <- yamltargets::create_pipeline_from_yaml(pipeline_path)
+names(targets)
+```
+
+The generated target names reflect the pipeline structure. The source target is
+`raw_data`, the transform target is `cleaned_data`, and the output target is
+`save_cleaned_data`.
+
+## The `_targets.R` file
+
+In a real project, `{targets}` reads target definitions from `_targets.R`. The
+included example keeps that file short:
+
+```{r}
+writeLines(readLines(file.path(example_dir, "_targets.R")))
+```
+
+The final expression returns `create_pipeline_from_yaml("pipeline.yml")`, so the
+YAML file remains the source of truth for the pipeline graph.
+
+## Run the example pipeline
+
+This vignette does not run `targets::tar_make()` because vignettes are built in
+package-check environments where writing a target store is unnecessary. To run
+the example yourself, copy it to a writable directory and run the pipeline from
+there:
+
+```{r, eval = FALSE}
+work_dir <- file.path(tempdir(), "simple-etl")
+unlink(work_dir, recursive = TRUE)
+file.copy(example_dir, dirname(work_dir), recursive = TRUE)
+
+old <- setwd(work_dir)
+on.exit(setwd(old), add = TRUE)
+
+targets::tar_make()
+```
+
+After the pipeline runs, the output file will be written inside the copied
+example directory:
+
+```text
+results/cleaned_data.parquet
+```

@@ -102,8 +102,7 @@ build_output_target <- function(output) {
 
   targets::tar_target_raw(
     name = paste0("save_", output_name),
-    command = call_expr,
-    format = "file"
+    command = call_expr
   )
 }
 

@@ -22,13 +22,13 @@ ensure_dir <- function(file) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to readr::write_csv()
 #'
-#' @return Invisibly returns the output file path.
+#' @return Invisibly returns `x`.
 #'
 #' @export
 write_csv <- function(x, file, ...) {
   ensure_dir(file)
   readr::write_csv(x, file, ...)
-  invisible(file)
+  invisible(x)
 }
 
 #' Write Parquet file
@@ -39,13 +39,13 @@ write_csv <- function(x, file, ...) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to arrow::write_parquet()
 #'
-#' @return Invisibly returns the output file path.
+#' @return Invisibly returns `x`.
 #'
 #' @export
 write_parquet <- function(x, file, ...) {
   ensure_dir(file)
   arrow::write_parquet(x, file, ...)
-  invisible(file)
+  invisible(x)
 }
 
 #' Save RDS file
@@ -56,11 +56,11 @@ write_parquet <- function(x, file, ...) {
 #' @param file Output file path
 #' @param ... Additional arguments passed to saveRDS()
 #'
-#' @return Invisibly returns the output file path.
+#' @return Invisibly returns `x`.
 #'
 #' @export
 save_rds <- function(x, file, ...) {
   ensure_dir(file)
   base::saveRDS(x, file = file, ...)
-  invisible(file)
+  invisible(x)
 }

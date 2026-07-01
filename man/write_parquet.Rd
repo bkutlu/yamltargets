@@ -14,7 +14,7 @@ write_parquet(x, file, ...)
 \item{...}{Additional arguments passed to arrow::write_parquet()}
 }
 \value{
-Invisibly returns the output file path.
+Invisibly returns `x`.
 }
 \description{
 Write data to a Parquet file, creating parent directories as needed.

@@ -1,6 +1,6 @@
 Package: yamltargets
 Title: YAML-Driven Data Pipelines for targets
-Version: 0.1.0
+Version: 0.0.0.9000
 Authors@R: person("Burak", "Kutlu", email = "bkutluisb@gmail.com", role = c("aut", "cre"))
 Description: Extend targets with declarative YAML configuration. Define data pipelines
     in YAML instead of hand-writing _targets.R. Part of the targetopia ecosystem.
@@ -16,6 +16,10 @@ Imports:
     readr (>= 2.0),
     arrow (>= 10.0)
 Suggests:
+    dplyr,
+    knitr,
+    rmarkdown,
     testthat (>= 3.0.0),
     withr
+VignetteBuilder: knitr
 Config/testthat/edition: 3

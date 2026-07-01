@@ -59,11 +59,23 @@ test_that("build_output_target writes to generated file under output directory",
 
   expect_s3_class(target, "tar_target")
   expect_equal(target$name, "save_cleaned")
-  expect_equal(target$settings$format, "file")
+  expect_equal(target$settings$format, targets::tar_option_get("format"))
   expect_equal(
     get("expr", envir = target$command),
     expression(write_csv(x = cleaned, file = "results/cleaned.csv"))
   )
+})
+
+test_that("writer helpers invisibly return the data object", {
+  skip_if_not_installed("withr")
+
+  data <- data.frame(id = 1:2)
+
+  tmp <- withr::local_tempdir()
+  withr::local_dir(tmp)
+
+  expect_identical(write_csv(data, "results/data.csv"), data)
+  expect_identical(save_rds(data, "results/data.rds"), data)
 })
 
 test_that("build_source_target with type=file_read creates two targets", {
