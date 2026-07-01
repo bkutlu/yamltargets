@@ -1,8 +1,5 @@
 # yamltargets
 
-<!-- badges: start -->
-<!-- badges: end -->
-
 Define `{targets}` target definitions in YAML, then use a minimal `_targets.R` file to run them.
 
 Part of the [targetopia](https://wlandau.github.io/targetopia/packages.html) family.
@@ -81,8 +78,7 @@ targets::tar_make()
 ## Why yamltargets?
 
 - **Declarative**: Target definitions are in YAML, not buried in R code
-- **Auditable**: Version-control friendly; easy to see what changed
-- **Simple**: No complex R syntax; focus on domain logic
+- **Simple**: No complex R syntax; focus on domain logic in a modular fashion
 - **Targets-native**: Generates `{targets}` target objects; no hidden magic
 
 ## Supported File Types
@@ -100,14 +96,8 @@ targets::tar_make()
 - `create_pipeline_from_yaml(config_path)` — Parse YAML and generate target definition objects
 - `validate_pipeline(config_path)` — Validate YAML configuration without building targets
 
-## Example Projects
-
-See `inst/examples/` for working examples:
-- `simple-etl/` — Load CSV, clean it, save as Parquet
-
 ## Learn More
 
-- [YAML Configuration Reference](inst/schema/pipeline.json)
 - [targetopia](https://wlandau.github.io/targetopia/) — Other targets extensions
 
 ## License
