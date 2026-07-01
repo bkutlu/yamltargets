@@ -1,3 +1,5 @@
+#' @importFrom utils file_test
+#' @keywords internal
 read_pipeline_config <- function(config_path) {
   if (!is_scalar_character(config_path)) {
     targets::tar_throw_validate("'config_path' must be a single file path")

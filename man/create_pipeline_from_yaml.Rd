@@ -10,7 +10,7 @@ create_pipeline_from_yaml(config_path, validate_targets = TRUE)
 \item{config_path}{Path to pipeline.yml configuration file.}
 
 \item{validate_targets}{Logical of length 1. Whether to validate the
-generated target objects with `{targets}` after building them.}
+generated target objects with the targets package after building them.}
 }
 \value{
 A list of target definition objects. Call this function as the

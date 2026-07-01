@@ -6,7 +6,7 @@
 #'
 #' @param config_path Path to pipeline.yml configuration file.
 #' @param validate_targets Logical of length 1. Whether to validate the
-#'   generated target objects with `{targets}` after building them.
+#'   generated target objects with the targets package after building them.
 #'
 #' @return A list of target definition objects. Call this function as the
 #'   entire return value of your `_targets.R` script.
