@@ -1,6 +1,2 @@
-/doc/
-/Meta/
-
 /.quarto/
 **/*.quarto_ipynb
-README.html
